@@ -9,15 +9,16 @@
 #include <stdlib.h>
 //#define  _XOPEN_SOURCE
 //#include <ucontext.h>
+#include <stdbool.h>
 
 struct context{
     int data;
     bool joinAll;
     bool joinSelf;
+    struct context *next;
     struct context *parent;
     struct context *childHead;
     struct context *nextSibling;
-    struct context *nextReadyThread;
 };
 typedef struct context thread;
 
@@ -102,14 +103,31 @@ void initThread (thread *t) {
     t->childHead = NULL;
     t->nextSibling = NULL;
     t->data = threadCount;
-    t->nextReadyThread = NULL;
+    t->next = NULL;
     if (readyQueueHead == NULL) {   // Initial condition where ready queue is empty
         readyQueueHead = t;
         readyQueueTail = t;
     } else {                        //
-        readyQueueTail->nextReadyThread = t;    // Add thread to end of queue
+        readyQueueTail->next = t;    // Add thread to end of queue
         readyQueueTail = t;                     // Increment tail pointer.
     }
+}
+
+thread* MyThreadCreate () {
+    thread *t = (thread*) malloc(sizeof(thread));
+    printf("Create\n");
+    if (t == NULL) {
+        printf("Error: Out of memory! Aborting... \n");
+        exit(0);
+    }
+    threadCount++;
+    initThread (t);
+    if (currentThread != NULL) { // Add all threads except root thread to their parents.
+        addThreadToParent (t, currentThread);
+    }
+    printf("Create\n");
+    printThread(t);
+    return t;
 }
 
 void MyThreadInit (void/*(*start_funct)(void *), void *args */) {
@@ -117,24 +135,11 @@ void MyThreadInit (void/*(*start_funct)(void *), void *args */) {
     rootThread = MyThreadCreate();
 }
 
-thread* MyThreadCreate () {
-    printf("Create\n");
-    thread *t = (thread*) malloc(sizeof(thread));
-    if (t == NULL) {
-        printf("Error: Out of memory! Aborting... \n");
-        exit(0);
-    }
-    threadCount++;
-    initThread (t);
-    addThreadToParent (t, currentThread);
-    printThread(t);
-    return t;
-}
-
 int main (void) {
     MyThreadInit();
-    currentThread = MyThreadCreate(); // current = t2
     printf("T1 create\n");
+    currentThread = rootThread;
+    currentThread = MyThreadCreate(); // current = t2
     thread* someThread = MyThreadCreate();
     someThread = MyThreadCreate(); // someThread = t4
     MyThreadCreate();
