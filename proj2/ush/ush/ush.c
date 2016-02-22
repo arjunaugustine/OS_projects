@@ -15,7 +15,7 @@
 #include "parse.h"
 
 
-#define DEBUG_MODE
+//#define DEBUG_MODE
 #ifdef DEBUG_MODE
     #define DETAIL(x) \
         printf(#x": %d\n", x);
@@ -98,35 +98,36 @@ void writeToPipe (int pipeFD[2], bool errorOut) {
     close(pipeFD[1]);
 }
 
-bool isBuiltin (Cmd C) {
-    if (strcmp(C->args[0], "cd")) {
+int isBuiltin (Cmd C) {
+    if (!strcmp(C->args[0], "cd")) {
         return 1;
     }
-    if (strcmp(C->args[0], "echo")) {
+    if (!strcmp(C->args[0], "echo")) {
         return 2;
     }
-    if (strcmp(C->args[0], "logout")) {
+    if (!strcmp(C->args[0], "logout")) {
         return 3;
     }
-    if (strcmp(C->args[0], "nice")) {
+    if (!strcmp(C->args[0], "nice")) {
         return 4;
     }
-    if (strcmp(C->args[0], "pwd")) {
+    if (!strcmp(C->args[0], "pwd")) {
         return 5;
     }
-    if (strcmp(C->args[0], "setenv")) {
+    if (!strcmp(C->args[0], "setenv")) {
         return 6;
     }
-    if (strcmp(C->args[0], "unsetenv")) {
+    if (!strcmp(C->args[0], "unsetenv")) {
         return 7;
     }
-    if (strcmp(C->args[0], "where")) {
+    if (!strcmp(C->args[0], "where")) {
         return 8;
     }
     return 0;
 }
 
 void ushExBuiltIn (Cmd C, int builtInID) {
+    DETAIL(builtInID);
     char *env, *envVal;
     int returnVal;
     switch (builtInID) {
@@ -138,7 +139,7 @@ void ushExBuiltIn (Cmd C, int builtInID) {
             } else if (C->args[2] == NULL) {    // Has only one argument
                 chdir(C->args[1]);
             } else {
-                write(STDERR_FILENO, "cd: Too many arguments.\n", sizeof("setenv: Too many arguments.\n"));
+                write(STDERR_FILENO, "cd: Too many arguments.", sizeof("setenv: Too many arguments.\n"));
             }
             break;
         case 2:         // "echo"
@@ -146,14 +147,14 @@ void ushExBuiltIn (Cmd C, int builtInID) {
                 printf("\n");
             } else {
                 int i = 1;
-                while (C->args[i] == NULL) {    // Has only one argument
-                    if (strncmp((C->args[1]), "$", 1)) {
-                        env = getenv((C->args[1]+1));
+                while (C->args[i] != NULL) {
+                    if (!strncmp((C->args[i]), "$", 1)) {
+                        env = getenv((C->args[i])+1);
                         if (env != NULL) {
                             printf("%s ",env);
                         }
                     } else {
-                        printf("%s ",C->args[1]);
+                        printf("%s ",C->args[i]);
                     }
                     i++;
                 }
@@ -166,9 +167,15 @@ void ushExBuiltIn (Cmd C, int builtInID) {
             break;
         case 5:         // "pwd"
             envVal = getenv("PWD");
+            if (envVal == NULL) {
+                perror("PWD not set");
+                break;
+            }
+            printf("%s\n", envVal);
             break;
         case 6:         // "setenv"
             if (C->args[1] == NULL) {
+                int iter = 0;
                 env = environ[0];
                 while (env != NULL) {
                     envVal = getenv(env);
@@ -177,7 +184,7 @@ void ushExBuiltIn (Cmd C, int builtInID) {
                         break;
                     }
                     printf("%s=%s\n",env, envVal);
-                    env ++;
+                    env = environ[++iter];
                 }
             } else if (C->args[2] == NULL) {
                 returnVal = setenv(C->args[1], "", 1);
@@ -249,14 +256,15 @@ void ushExCmd (Cmd C, int pipeFD[2]) {
             fprintf(stderr, "Unknown Command Out Token\n");
             _exit(EXIT_FAILURE);
     }
-//    int builtIn = isBuiltin(C);
-//    if (builtIn) {
-//        ushExBuiltIn(C, builtIn);
-//    } else {
+    int builtIn = isBuiltin(C);
+//    DETAIL(builtIn);
+    if (builtIn > 0) {
+        ushExBuiltIn(C, builtIn);
+    } else {
         if (execvp(C->args[0], C->args) == -1) {
             perror("Error");
         }
-//    }
+    }
 }
 
 void pipeIn (int pipeInFD[2], Cmd C) {
@@ -334,6 +342,10 @@ void ushExStmt (Pipe P) {
         pid_t wpid;
         do {
             wpid = waitpid(pid, &waitStatus, WUNTRACED);
+//            if (-1 == wpid) {
+//                perror("negative wpid");
+//                _exit(EXIT_FAILURE);
+//            }
         } while (!WIFEXITED(waitStatus) && !WIFSIGNALED(waitStatus));
         D("ushExStmtParentWaitOver.\n");
         checkNextCmd(cmd1->next, pipeFD);
