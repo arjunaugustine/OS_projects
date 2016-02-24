@@ -14,7 +14,6 @@
 #include <fcntl.h>
 #include "parse.h"
 
-
 //#define DEBUG_MODE
 #ifdef DEBUG_MODE
     #define DETAIL(x) \
@@ -139,26 +138,39 @@ void ushExCd(Cmd C){
 void ushExEcho (Cmd C) {
     char *env    = (char*)malloc(100*sizeof(char));
     if (C->args[1] == NULL) {
-        printf("\n");
+        fprintf(stdout, "\n");
     } else {
         int i = 1;
         while (C->args[i] != NULL) {
             if (!strncmp((C->args[i]), "$", 1)) {
                 env = getenv((C->args[i])+1);
                 if (env != NULL) {
-                    printf("%s ",env);
+                    fprintf(stdout, "%s ",env);
                 }
             } else {
-                printf("%s ",C->args[i]);
+                fprintf(stdout, "%s ",C->args[i]);
             }
             i++;
         }
-        printf("\n");
+        fprintf(stdout, "\n");
     }
 }
 
 void ushExNice (Cmd C) {
-    
+    pid_t pid = getpid();
+    if (C->nargs == 1) {
+        if (-1 == setpriority(PRIO_PROCESS, pid, 4)) {
+            perror("setpriority");
+        }
+    } else if (C->nargs == 2) {
+        if (-1 == setpriority(PRIO_PROCESS, pid, atoi(C->args[1]))) {
+            perror("setpriority");
+        }
+    } else if (C->nargs == 3) {
+        // Implement
+    } else {
+        fprintf(stderr, "nice: Too many arguments.\n");
+    }
 }
 
 void ushExPwd (Cmd C) {
@@ -167,7 +179,7 @@ void ushExPwd (Cmd C) {
     if (env == NULL) {
         perror("PWD not set");
     } else {
-        printf("%s\n", env);
+        fprintf(stdout, "%s\n", env);
     }
 }
 
@@ -179,63 +191,64 @@ void ushExSetenv (Cmd C) {
         int iter = 0;
         env = environ[0];
         while (env != NULL) {
-            envVal = getenv(env);
-            if (envVal == NULL) {
-                perror("setEnv");
-                break;
-            }
-            printf("%s=%s\n",env, envVal);
+//            envVal = getenv(env);
+//            if (envVal == NULL) {
+//                perror("setEnv");
+//                break;
+//            }
+            fprintf(stdout, "%s=%s\n",env, envVal);
             env = environ[++iter];
         }
     } else if (C->args[2] == NULL) {
         returnVal = setenv(C->args[1], "", 1);
         if (returnVal == -1) {
-            perror("setenv ReturnVal");
+            perror("setenv");
         }
     } else if (C->args[3] == NULL) {
         returnVal = setenv(C->args[1], C->args[2], 1);
         if (returnVal == -1) {
-            perror("setenv ReturnVal");
+            perror("setenv");
         }
     } else {
-        write(STDERR_FILENO, "setenv: Too many arguments.\n", sizeof("setenv: Too many arguments.\n"));
+        fprintf(stderr, "setenv: Too many arguments.\n");
     }
+    free(env);
+    free(envVal);
 }
 
 void ushExUnsetenv (Cmd C) {
     int returnVal;
     if (C->args[1] == NULL) {
-        printf("unsetenv: Too few arguments.\n");
+        fprintf(stdout, "unsetenv: Too few arguments.\n");
     } else if (C->nargs > 2) {
-        printf("unsetenv: Too many arguments.\n");
+        fprintf(stdout, "unsetenv: Too many arguments.\n");
     } else {
         returnVal = unsetenv(C->args[1]);
         if (returnVal == -1) {
-            perror("unsetenv ReturnVal");
+            perror("unsetenv");
         }
     }
 }
 
-// All checked except occassional unwanted output.
 void ushExWhere (Cmd C) {
-    char *env      = (char*)malloc(500*sizeof(char));
-    char *pathCopy = (char*)malloc(900*sizeof(char));
+    // All checked except occassional unwanted output.
+    char *env = (char*)malloc(500*sizeof(char));
     if (C->nargs == 1) {
-        write(STDERR_FILENO, "where: Too few arguments.\n", sizeof("where: Too few arguments.\n"));
+        fprintf(stderr, "where: Too few arguments.\n");
     }
     int iter = 1;
     char *arg = C->args[iter];
     while (arg != NULL) {
         if (isBuiltin(arg)) {
-//            write(STDOUT_FILENO, , <#size_t#>)
-            printf("%s: shell built-in command\n",arg);
+            fprintf(stdout, "%s: shell built-in command\n",arg);
         }
+        char *pathCopy = (char*)malloc(900*sizeof(char));
         strcpy(pathCopy, getenv("PATH"));
         while ((strcpy(env, strsep(&pathCopy, ":")))) {
             strcat(env,"/");
             strcat(env,arg);
             if( access( env, F_OK ) != -1 ) {
-                printf("%s\n",env);
+                fprintf(stdout, "%s\n",env);
                 break;
             }
             if (!pathCopy) {
@@ -246,15 +259,42 @@ void ushExWhere (Cmd C) {
         strcat(env,"/");
         strcat(env,arg);
         if( access( env, F_OK ) != -1 ) {
-            printf("%s\n",env);
+            fprintf(stdout, "%s\n",env);
         }
         iter++;
         arg = C->args[iter];
+        free(pathCopy);
     }
+    free(env);
 }
 
 void ushExBuiltIn (Cmd C, int builtInID) {
     DETAIL(builtInID);
+    int fildesout = dup(STDOUT_FILENO);
+    int fildeserr = dup(STDERR_FILENO);
+    int fildesinp = dup( STDIN_FILENO);
+    if (C->in == Tin) {
+        openFileForRead(C->infile);
+    }
+    switch ( C->out ) {
+        case Tnil:
+            break;
+        case Tout:
+            openFileForWrite(C->outfile, false);
+            break;
+        case Tapp:
+            openFileForAppend(C->outfile, false);
+            break;
+        case ToutErr:
+            openFileForWrite(C->outfile, true);
+            break;
+        case TappErr:
+            openFileForAppend(C->outfile, true);
+            break;
+        default:
+            fprintf(stderr, "Unknown Command Out Token\n");
+            _exit(EXIT_FAILURE);
+    }
     switch (builtInID) {
         case 0:         // Not BuiltIn Command
             break;
@@ -266,7 +306,6 @@ void ushExBuiltIn (Cmd C, int builtInID) {
             break;
         case 3:         // "logout"
             exit(EXIT_SUCCESS);
-            break;
         case 4:         // "nice"
             ushExNice(C);
             break;
@@ -283,9 +322,12 @@ void ushExBuiltIn (Cmd C, int builtInID) {
             ushExWhere(C);
             break;
         default:
-            printf("inbuiltCmd Switch default Error!");
+            fprintf(stderr, "inbuiltCmd Switch default Error!");
             break;
     }
+    dup2(fildesinp,  STDIN_FILENO);
+    dup2(fildesout, STDOUT_FILENO);
+    dup2(fildeserr, STDERR_FILENO);
 }
 
 void ushExCmd (Cmd C, int pipeFD[2]) {
@@ -431,16 +473,20 @@ void ushExLine (Pipe P) {
     }
 }
 
-int main(int argc, const char * argv[]) {
+int  main(int argc, const char * argv[]) {
     Pipe P;
     char host[256];
+    if(gethostname(host, sizeof(host)) < 0) {
+        D("Error: Couldnt get hostname! Aborting...\n");
+        exit (-1);
+    }
     do {
-        if(gethostname(host, sizeof(host)) < 0) {
-            D("Error: Couldnt get hostname! Aborting...\n");
-            exit (-1);
-        }
         printf("%s$ ",host);
         P = parse();
+        if (!strcmp(P->head->args[0], "end") && !isatty(fileno(STDIN_FILENO))){
+            freePipe(P);
+            exit(EXIT_SUCCESS);
+        }
         ushExLine(P);
         freePipe(P);
     } while (status);
