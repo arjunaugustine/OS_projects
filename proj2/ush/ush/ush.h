@@ -23,60 +23,69 @@ printf(x);
 int status = 1;
 
 extern char **environ;
+char * oldpwd;
 
 void checkNextCmd (Cmd C, int pipeFD[2]);
 
-void checkDescriptor (int descriptor) {
-    if (descriptor == -1) {
-        perror("Unable to Open File");
+void errorCheck (int returnVal, char *err) {
+    if (returnVal == -1) {
+        perror(err);
         _exit(EXIT_FAILURE);
     }
 }
 
 void redirectInput (int descriptor) {
-    dup2(descriptor, STDIN_FILENO);
-    close(descriptor);
+    int returnVal = dup2(descriptor, STDIN_FILENO);
+    errorCheck(returnVal, "dup2");
+    returnVal = close(descriptor);
+    errorCheck(returnVal, "File Close");
 }
 
 void redirectOutput (int descriptor, bool errorOut) {
-    dup2(descriptor, STDOUT_FILENO);
+    int returnVal = dup2(descriptor, STDOUT_FILENO);
+    errorCheck(returnVal, "dup2");
     if (errorOut) {
-        dup2(descriptor, STDERR_FILENO);
+        returnVal = dup2(descriptor, STDERR_FILENO);
+        errorCheck(returnVal, "dup2");
     }
-    close(descriptor);
+    returnVal = close(descriptor);
+    errorCheck(returnVal, "File Close");
 }
 
 void openFileForRead (char *infile) {
     int descriptor = 0;
     descriptor = open(infile,(O_RDONLY),(S_IRUSR|S_IRGRP|S_IROTH));
-    checkDescriptor(descriptor);
+    errorCheck(descriptor, "File Open");
     redirectInput(descriptor);
 }
 
 void openFileForWrite (char *outfile, bool errorOut) {
     int descriptor = 0;
     descriptor = open(outfile,(O_CREAT|O_WRONLY|O_TRUNC),(S_IRWXU|S_IRWXG|S_IRWXO));
-    checkDescriptor(descriptor);
+    errorCheck(descriptor, "File Open");
     redirectOutput(descriptor, errorOut);
 }
 
 void openFileForAppend (char *outfile, bool errorOut) {
     int descriptor = 0;
     descriptor = open(outfile,(O_APPEND|O_WRONLY),(S_IRWXU|S_IRWXG|S_IRWXO));
-    checkDescriptor(descriptor);
+    errorCheck(descriptor, "File Open");
     redirectOutput(descriptor, errorOut);
 }
 
 void restoreDescriptors (int fildesout, int fildesinp, int fildeserr) {
-    dup2(fildesinp,  STDIN_FILENO);             // Restore the descriptors
-    dup2(fildesout, STDOUT_FILENO);             // to previous values.
-    dup2(fildeserr, STDERR_FILENO);
+    int returnVal = dup2(fildesinp,  STDIN_FILENO);         // Restore the descriptors
+    errorCheck(returnVal, "dup2");
+//    returnVal = dup2(fildesout, STDOUT_FILENO);             // to previous values.
+//    checkDup2(returnVal);
+//    returnVal = dup2(fildeserr, STDERR_FILENO);
+//    checkDup2(returnVal);
 }
 
 void saveDescriptors (int *fildesout, int *fildesinp, int *fildeserr) {
-    *fildesout = dup(STDOUT_FILENO);            // Duplicate the current STDOUT,
-    *fildeserr = dup(STDERR_FILENO);            // STDERR, STDIN descriptors to
+//    *fildesout = dup(STDOUT_FILENO);            // Duplicate the current STDOUT,
     *fildesinp = dup( STDIN_FILENO);            // restore them after indirection
+//    *fildeserr = dup(STDERR_FILENO);            // STDERR, STDIN descriptors to
 }
 
 void waitOnPid (pid_t pid) {
@@ -84,8 +93,8 @@ void waitOnPid (pid_t pid) {
     do {
         pid_t wpid = waitpid(pid, &waitStatus, WUNTRACED);
         if (-1 == wpid) {
-            //                perror("negative wpid");
-            //                _exit(EXIT_FAILURE);
+//                            perror("negative wpid");
+//                            _exit(EXIT_FAILURE);
         }
     } while (!WIFEXITED(waitStatus) && !WIFSIGNALED(waitStatus));
 }
@@ -136,8 +145,8 @@ int  isBuiltin (char *C) {
 }
 
 void ushExCd(Cmd C){
-    char *env = ( (C->nargs == 1)          ? getenv("HOME")   :
-                 (!strcmp(C->args[1], "-")) ? getenv("OLDPWD") : C->args[1]);
+    char *env = strdup((C->nargs == 1)    ? getenv("HOME")   :
+              (!strcmp (C->args[1], "-")) ? oldpwd : C->args[1]);
     if (env == NULL) {
         if (getenv("HOME") == NULL) {
             env = "cd: HOME not set\n";
@@ -147,10 +156,12 @@ void ushExCd(Cmd C){
         fprintf(stdout, "%s", env);
         return;
     }
+    oldpwd = getcwd(oldpwd, 256);
     int returnVal = chdir(env);
     if(-1 == returnVal){
         perror("cd");
     }
+    free(env);
 }
 
 void ushExEcho (Cmd C) {
@@ -160,12 +171,10 @@ void ushExEcho (Cmd C) {
         int i = 1;
         while (C->args[i] != NULL) {
             if (!strncmp((C->args[i]), "$", 1)) {
-                char *env    = (char*)malloc(500*sizeof(char));
-                env = getenv((C->args[i])+1);
+                char *env = getenv((C->args[i])+1);
                 if (env != NULL) {
                     fprintf(stdout, "%s ",env);
                 }
-                free(env);
             } else {
                 fprintf(stdout, "%s ",C->args[i]);
             }
@@ -192,8 +201,28 @@ void ushExNice (Cmd C) {
         if (-1 == setpriority(PRIO_PROCESS, pid, atoi(C->args[1]))) {
             perror("setpriority");
         }
-    } else if (C->nargs == 3 || !isADigit(*(C->args[1])) ) {
+    } else if (C->nargs >= 3 || !isADigit(*(C->args[1])) ) {
         // Implement
+//        int builtIn = isBuiltin(C->args[2]);
+//        if (builtIn > 0) {                  // and is builtIn
+//            ushExBuiltIn(cmd1, builtIn);    // Execute BuiltIn commands
+//            return;                         // Return to parse more pipes
+//        }
+        pid_t pid = fork();                     // If cmd is not BuiltIn, Fork
+        if (pid < 0) {
+            perror("Fork Error");
+        } else if (pid == 0) {                  // Child Process
+            D("ushExStmtChild\n");
+            int pos = C->nargs >= 3 ? 2 : 1;
+            if (execvp(C->args[pos], &(C->args[pos])) == -1) {
+                perror("Error");    // This part of code never executes if execvp is success
+            }
+            _exit(EXIT_FAILURE);
+        } else {                                // Parent process
+            D("ushExStmtParent\n");
+            waitOnPid(pid);
+        }
+
     } else {
         fprintf(stderr, "nice: Too many arguments.\n");
     }
@@ -246,6 +275,7 @@ void ushExWhere (Cmd C) {
     // All checked except occassional unwanted output.
     // Last check in CWD/PWD???
     char *env;
+    oldpwd = (char*)malloc(256*sizeof(char));
     if (C->nargs == 1) {
         fprintf(stderr, "where: Too few arguments.\n");
     }

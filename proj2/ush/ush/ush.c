@@ -11,6 +11,7 @@
 #include <stdbool.h>
 #include <string.h>
 #include <unistd.h>
+#include <errno.h>
 #include <fcntl.h>
 #include "parse.h"
 #include "ush.h"
@@ -203,6 +204,99 @@ void ushExLine (Pipe P) {
         P = P->next;
     }
 }
+//
+//int openFile(char *filename){
+//    int fd = open(filename, O_RDONLY, S_IRUSR | S_IRGRP | S_IROTH);
+//    if(-1 == fd){
+//        perror("open");
+//        _exit(EXIT_FAILURE);
+//    }
+//    return fd;
+//}
+//
+//int closeFileD(int fd){
+//    int retVal = close(fd);
+//    if(-1 == retVal){
+//        perror("close");
+//        _exit(EXIT_FAILURE);
+//    }
+//    return retVal;
+//}
+//
+//int duplicate(int oldfd, int newfd){
+//    int retVal = dup2(oldfd, newfd);
+//    if(-1 == retVal){
+//        perror("dup2");
+//        _exit(EXIT_FAILURE);
+//    }
+//    return retVal;
+//}
+//
+//int execute(Pipe pipe)
+//{
+//	int status = 1;
+//	while(NULL != pipe){
+//		ushExStmt(pipe);
+//		pipe = pipe->next;
+//	}
+//	return status;
+//}
+//
+//int exec(Pipe pipe) {
+//	int status = 1;
+//	if (NULL != pipe) {
+//		if (strcmp("end", pipe->head->args[0]) != 0) {
+//			status = execute(pipe);
+//		} else {
+//			status = 0;
+//		}
+//	}
+//	return status;
+//}
+//
+//void executeFileCmds() {
+//	int status = 1;
+//	Pipe pipe = NULL;
+//	do {
+//		pipe = parse();
+//		status = exec(pipe);
+//		freePipe(pipe);
+//	} while (status);
+//}
+//
+//void readUshrc(char *ushrc) {
+//                        int prevD = dup(STDIN_FILENO);
+//			int fd = openFile(ushrc);
+//			duplicate(fd, STDIN_FILENO);
+//			closeFileD(fd);
+//			executeFileCmds();
+//			duplicate(prevD, STDIN_FILENO);
+//			closeFileD(prevD);
+//}
+
+void readUshrcIfExists() {
+    char * ushrc = (char *)malloc(500*sizeof(char));
+    strcpy(ushrc, getenv("HOME"));
+    strcat(ushrc, "/.ushrc");
+    if(  -1 != access( ushrc, F_OK )) {           // If .ushrc file exists in HOME:
+        int stdin_copy = dup(STDIN_FILENO);
+        close(STDIN_FILENO);
+        errorCheck(open(ushrc,(O_RDONLY),(S_IRUSR|S_IRGRP|S_IROTH)), "File Open");
+        do {
+            Pipe P = parse();
+            if (!strcmp(P->head->args[0], "end")) {
+                freePipe(P);
+                break;
+            }
+            ushExLine(P);
+            fflush(stdout);
+            freePipe(P);
+        } while (1);
+        close(STDIN_FILENO);
+        int returnVal = dup2(stdin_copy,  STDIN_FILENO);
+        errorCheck(returnVal, "dup2");
+    }
+}
 
 int  main(int argc, const char * argv[]) {
     Pipe P;
@@ -211,28 +305,19 @@ int  main(int argc, const char * argv[]) {
         D("Error: Couldnt get hostname! Aborting...\n");
         exit (-1);
     }
-    char * ushrc = (char *)malloc(500*sizeof(char));
-    strcpy(ushrc, getenv("HOME"));
-    strcat(ushrc, "/.ushrc");
-    if( access( ushrc, F_OK ) != -1 ) {           // If .ushrc file exists in HOME:
-        int fildesout, fildesinp, fildeserr;
-        saveDescriptors(&fildesout, &fildesinp, &fildeserr);
-        openFileForRead(ushrc);
-        do {
-            P = parse();
-            if (!strcmp(P->head->args[0], "end")) {
-                freePipe(P);
-                break;
-            }
-            ushExLine(P);
-            freePipe(P);
-        } while (1);
-        restoreDescriptors(fildesout, fildesinp, fildeserr);
-    }
+    readUshrcIfExists();
+    clearerr(stdin);
     do {
         if (isatty(STDIN_FILENO)) {
             printf("%s$ ",host);
             fflush(stdout);            
+        }
+
+        if (feof(stdin)) {
+            printf("EOF\n");
+        }
+        if (fcntl(STDIN_FILENO, F_GETFL) < 0 && errno == EBADF) {
+            perror("Bad Descriptor\n");
         }
         P = parse();
         if (P != NULL) {
@@ -245,6 +330,7 @@ int  main(int argc, const char * argv[]) {
             }
         }
         ushExLine(P);
+        fflush(stdout);
         freePipe(P);
     } while (status);
     return 0;
