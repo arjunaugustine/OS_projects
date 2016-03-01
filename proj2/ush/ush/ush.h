@@ -6,21 +6,22 @@
 //  Copyright © 2016 Arjun Augustine. All rights reserved.
 //
 
+#include <sys/resource.h>
+#include <sys/wait.h>
+
 #ifndef ush_h
 #define ush_h
 
-//#define DEBUG_MODE
+//#define DEBUG_MODE    // Include a -DDEBUG_MODE flag in Makefile to compile in debug mode.
 #ifdef DEBUG_MODE
-#define DETAIL(x) \
-printf(#x": %d\n", x);
-#define D(x) \
-printf(x);
+    #define DETAIL(x) \
+        printf(#x": %d\n", x);
+    #define D(x) \
+        printf(x);
 #else
-#define DETAIL(x)
-#define D(x)
+    #define DETAIL(x)
+    #define D(x)
 #endif
-
-int status = 1;
 
 extern char **environ;
 char * oldpwd;
@@ -76,16 +77,16 @@ void openFileForAppend (char *outfile, bool errorOut) {
 void restoreDescriptors (int fildesout, int fildesinp, int fildeserr) {
     int returnVal = dup2(fildesinp,  STDIN_FILENO);         // Restore the descriptors
     errorCheck(returnVal, "dup2");
-//    returnVal = dup2(fildesout, STDOUT_FILENO);             // to previous values.
-//    checkDup2(returnVal);
-//    returnVal = dup2(fildeserr, STDERR_FILENO);
-//    checkDup2(returnVal);
+    returnVal = dup2(fildesout, STDOUT_FILENO);             // to previous values.
+    errorCheck(returnVal, "dup2");
+    returnVal = dup2(fildeserr, STDERR_FILENO);
+    errorCheck(returnVal, "dup2");
 }
 
 void saveDescriptors (int *fildesout, int *fildesinp, int *fildeserr) {
-//    *fildesout = dup(STDOUT_FILENO);            // Duplicate the current STDOUT,
+    *fildesout = dup(STDOUT_FILENO);            // Duplicate the current STDOUT,
     *fildesinp = dup( STDIN_FILENO);            // restore them after indirection
-//    *fildeserr = dup(STDERR_FILENO);            // STDERR, STDIN descriptors to
+    *fildeserr = dup(STDERR_FILENO);            // STDERR, STDIN descriptors to
 }
 
 void waitOnPid (pid_t pid) {

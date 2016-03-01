@@ -204,75 +204,6 @@ void ushExLine (Pipe P) {
         P = P->next;
     }
 }
-//
-//int openFile(char *filename){
-//    int fd = open(filename, O_RDONLY, S_IRUSR | S_IRGRP | S_IROTH);
-//    if(-1 == fd){
-//        perror("open");
-//        _exit(EXIT_FAILURE);
-//    }
-//    return fd;
-//}
-//
-//int closeFileD(int fd){
-//    int retVal = close(fd);
-//    if(-1 == retVal){
-//        perror("close");
-//        _exit(EXIT_FAILURE);
-//    }
-//    return retVal;
-//}
-//
-//int duplicate(int oldfd, int newfd){
-//    int retVal = dup2(oldfd, newfd);
-//    if(-1 == retVal){
-//        perror("dup2");
-//        _exit(EXIT_FAILURE);
-//    }
-//    return retVal;
-//}
-//
-//int execute(Pipe pipe)
-//{
-//	int status = 1;
-//	while(NULL != pipe){
-//		ushExStmt(pipe);
-//		pipe = pipe->next;
-//	}
-//	return status;
-//}
-//
-//int exec(Pipe pipe) {
-//	int status = 1;
-//	if (NULL != pipe) {
-//		if (strcmp("end", pipe->head->args[0]) != 0) {
-//			status = execute(pipe);
-//		} else {
-//			status = 0;
-//		}
-//	}
-//	return status;
-//}
-//
-//void executeFileCmds() {
-//	int status = 1;
-//	Pipe pipe = NULL;
-//	do {
-//		pipe = parse();
-//		status = exec(pipe);
-//		freePipe(pipe);
-//	} while (status);
-//}
-//
-//void readUshrc(char *ushrc) {
-//                        int prevD = dup(STDIN_FILENO);
-//			int fd = openFile(ushrc);
-//			duplicate(fd, STDIN_FILENO);
-//			closeFileD(fd);
-//			executeFileCmds();
-//			duplicate(prevD, STDIN_FILENO);
-//			closeFileD(prevD);
-//}
 
 void readUshrcIfExists() {
     char * ushrc = (char *)malloc(500*sizeof(char));
@@ -303,7 +234,7 @@ int  main(int argc, const char * argv[]) {
     char host[256];
     if(gethostname(host, sizeof(host)) < 0) {       // get hostname for prompt
         D("Error: Couldnt get hostname! Aborting...\n");
-        exit (-1);
+        exit(EXIT_FAILURE);
     }
     readUshrcIfExists();
     clearerr(stdin);
@@ -312,12 +243,11 @@ int  main(int argc, const char * argv[]) {
             printf("%s$ ",host);
             fflush(stdout);            
         }
-
         if (feof(stdin)) {
-            printf("EOF\n");
+            perror("EOF");
         }
         if (fcntl(STDIN_FILENO, F_GETFL) < 0 && errno == EBADF) {
-            perror("Bad Descriptor\n");
+            perror("Bad Descriptor");
         }
         P = parse();
         if (P != NULL) {
@@ -332,6 +262,6 @@ int  main(int argc, const char * argv[]) {
         ushExLine(P);
         fflush(stdout);
         freePipe(P);
-    } while (status);
+    } while (1);
     return 0;
 }
