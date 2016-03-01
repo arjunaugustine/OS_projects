@@ -13,6 +13,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
 #include "parse.h"
 #include "ush.h"
 
@@ -37,6 +38,12 @@ void ushExBuiltIn (Cmd C, int builtInID) {
             break;
         case TappErr:
             openFileForAppend(C->outfile, true);
+            break;
+        case Tpipe:
+//            writeToPipe(pipeFD, false);
+            break;
+        case TpipeErr:
+//            writeToPipe(pipeFD, true);
             break;
         default:                    // BuiltIn commands are not pipes
             fprintf(stderr, "Unknown Command Out Token\n");
@@ -80,6 +87,11 @@ void ushExCmd (Cmd C, int pipeFD[2]) {
     if (C == NULL) {
         fprintf(stderr, "Null Command Pointer Passed\n");
         _exit(EXIT_FAILURE);
+    }
+    int builtIn = isBuiltin(C->args[0]);    // Check last command for BuiltIn
+    if (builtIn > 0) {
+        ushExBuiltIn(C, builtIn);
+        return;
     }
     if (C->in == Tin) {
         openFileForRead(C->infile);
@@ -127,6 +139,7 @@ void pipeIn (int pipeInFD[2], Cmd C) {
         perror("Fork Error");
     } else if (pid == 0) {      // Child Process
         D("pipeInChild\n");
+        signal(SIGINT, SIG_DFL);
         dup2(pipeInFD[0], STDIN_FILENO);
         close(pipeInFD[0]);
         ushExCmd(C, pipeInFD);
@@ -148,11 +161,12 @@ void pipeInOut (int pipeInFD[2], Cmd C) {
         perror("Fork Error");
     } else if (pid == 0) {                  // Child Process
         D("ushInOutChild\n");
+        signal(SIGINT, SIG_DFL);
         dup2( pipeInFD[0],  STDIN_FILENO);  // Read from Input Pipe
         dup2(pipeOutFD[1], STDOUT_FILENO);  // Write to Output Pipe
         close( pipeInFD[0]);
         close(pipeOutFD[1]);
-        ushExCmd(C, pipeInFD);
+        ushExCmd(C, pipeOutFD);
         _exit(EXIT_FAILURE);
     } else {                                // Parent Process
         close(pipeInFD[0]);
@@ -189,6 +203,7 @@ void ushExStmt (Pipe P) {
         perror("Fork Error");
     } else if (pid == 0) {                  // Child Process
         D("ushExStmtChild\n");
+        signal(SIGINT, SIG_DFL);
         ushExCmd(cmd1, pipeFD);
         _exit(EXIT_FAILURE);
     } else {                                // Parent process
@@ -209,7 +224,7 @@ void readUshrcIfExists() {
     char * ushrc = (char *)malloc(500*sizeof(char));
     strcpy(ushrc, getenv("HOME"));
     strcat(ushrc, "/.ushrc");
-    if(  -1 != access( ushrc, F_OK )) {           // If .ushrc file exists in HOME:
+    if(  -1 != access( ushrc, F_OK )) {         // If .ushrc file exists in HOME:
         int stdin_copy = dup(STDIN_FILENO);
         close(STDIN_FILENO);
         errorCheck(open(ushrc,(O_RDONLY),(S_IRUSR|S_IRGRP|S_IROTH)), "File Open");
@@ -232,6 +247,10 @@ void readUshrcIfExists() {
 int  main(int argc, const char * argv[]) {
     Pipe P;
     char host[256];
+    signal(SIGINT , SIG_IGN);
+    signal(SIGQUIT, SIG_IGN);
+    signal(SIGTERM, SIG_IGN);
+    signal(SIGTSTP, SIG_IGN);
     if(gethostname(host, sizeof(host)) < 0) {       // get hostname for prompt
         D("Error: Couldnt get hostname! Aborting...\n");
         exit(EXIT_FAILURE);
